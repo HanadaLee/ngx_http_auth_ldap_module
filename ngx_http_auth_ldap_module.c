@@ -133,13 +133,13 @@ typedef struct {
 typedef struct {
     ngx_array_t *servers;        /* array of ngx_http_auth_ldap_server_t */
     ngx_flag_t cache_enabled;
-    ngx_msec_t cache_expiration_time;
+    ngx_msec_t cache_valid;
     size_t cache_size;
     ngx_int_t servers_size;
 #if (NGX_OPENSSL)
     ngx_ssl_t ssl;
 #endif
-    ngx_msec_t resolver_timeout;        /* resolver_timeout */
+    ngx_msec_t resolve_timeout;        /* resolve_timeout */
     ngx_resolver_t *resolver;           /* resolver */
     ngx_pool_t *cnf_pool;
 } ngx_http_auth_ldap_main_conf_t;
@@ -293,7 +293,7 @@ static ngx_command_t ngx_http_auth_ldap_commands[] = {
         NULL
     },
     {
-        ngx_string("auth_ldap_cache_enabled"),
+        ngx_string("auth_ldap_cache"),
         NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
         ngx_conf_set_flag_slot,
         NGX_HTTP_MAIN_CONF_OFFSET,
@@ -301,11 +301,11 @@ static ngx_command_t ngx_http_auth_ldap_commands[] = {
         NULL
     },
     {
-        ngx_string("auth_ldap_cache_expiration_time"),
+        ngx_string("auth_ldap_cache_valid"),
         NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
         ngx_conf_set_msec_slot,
         NGX_HTTP_MAIN_CONF_OFFSET,
-        offsetof(ngx_http_auth_ldap_main_conf_t, cache_expiration_time),
+        offsetof(ngx_http_auth_ldap_main_conf_t, cache_valid),
         NULL
     },
     {
@@ -333,11 +333,11 @@ static ngx_command_t ngx_http_auth_ldap_commands[] = {
         NULL
     },
     {
-        ngx_string("auth_ldap_resolver_timeout"),
+        ngx_string("auth_ldap_resolve_timeout"),
         NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
         ngx_conf_set_msec_slot,
         NGX_HTTP_MAIN_CONF_OFFSET,
-        offsetof(ngx_http_auth_ldap_main_conf_t, resolver_timeout),
+        offsetof(ngx_http_auth_ldap_main_conf_t, resolve_timeout),
         NULL
     },
     {
@@ -1004,10 +1004,10 @@ ngx_http_auth_ldap_create_main_conf(ngx_conf_t *cf)
 
     conf->cnf_pool = cf->pool;
     conf->cache_enabled = NGX_CONF_UNSET;
-    conf->cache_expiration_time = NGX_CONF_UNSET_MSEC;
+    conf->cache_valid = NGX_CONF_UNSET_MSEC;
     conf->cache_size = NGX_CONF_UNSET_SIZE;
     conf->servers_size = NGX_CONF_UNSET;
-    conf->resolver_timeout = NGX_CONF_UNSET_MSEC;
+    conf->resolve_timeout = NGX_CONF_UNSET_MSEC;
     conf->resolver = NULL;
 
     return conf;
@@ -1018,8 +1018,8 @@ ngx_http_auth_ldap_init_main_conf(ngx_conf_t *cf, void *parent)
 {
     ngx_http_auth_ldap_main_conf_t *conf = parent;
 
-    if (conf->resolver_timeout == NGX_CONF_UNSET_MSEC) {
-        conf->resolver_timeout = 10000;
+    if (conf->resolve_timeout == NGX_CONF_UNSET_MSEC) {
+        conf->resolve_timeout = 10000;
     }
 
     if (conf->cache_enabled == NGX_CONF_UNSET) {
@@ -1037,11 +1037,11 @@ ngx_http_auth_ldap_init_main_conf(ngx_conf_t *cf, void *parent)
         return NGX_CONF_ERROR;
     }
 
-    if (conf->cache_expiration_time == NGX_CONF_UNSET_MSEC) {
-        conf->cache_expiration_time = 10000;
+    if (conf->cache_valid == NGX_CONF_UNSET_MSEC) {
+        conf->cache_valid = 10000;
     }
-    if (conf->cache_expiration_time < 1000) {
-        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "http_auth_ldap: auth_ldap_cache_expiration_time cannot be smaller than 1000 ms.");
+    if (conf->cache_valid < 1000) {
+        ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "http_auth_ldap: auth_ldap_cache_valid cannot be smaller than 1000 ms.");
         return NGX_CONF_ERROR;
     }
 
@@ -1162,7 +1162,7 @@ ngx_http_auth_ldap_init_cache(ngx_cycle_t *cycle)
     }
 
     
-    cache->expiration_time = conf->cache_expiration_time;
+    cache->expiration_time = conf->cache_valid;
     cache->num_buckets = count;
     cache->elts_per_bucket = 8;
 
@@ -2096,7 +2096,7 @@ ngx_http_auth_ldap_connect(ngx_http_auth_ldap_connection_t *c)
         resolver_ctx->name = c->server->parsed_url.host;
         resolver_ctx->handler = ngx_http_auth_ldap_resolve_handler;
         resolver_ctx->data = c;
-        resolver_ctx->timeout = c->main_cnf->resolver_timeout;
+        resolver_ctx->timeout = c->main_cnf->resolve_timeout;
         c->resolver_ctx = resolver_ctx;
         if (ngx_resolve_name(resolver_ctx) != NGX_OK) {
             c->resolver_ctx = NULL;

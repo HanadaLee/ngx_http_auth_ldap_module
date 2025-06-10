@@ -98,16 +98,16 @@ And add required servers in correct order into your location/server directive:
 
 ## Available config parameters
 
-### auth_ldap_cache_enabled
+### auth_ldap_cache
 
-* Syntax: auth_ldap_cache_enabled on | off;
-* Default: auth_ldap_cache_enabled off;
+* Syntax: auth_ldap_cache on | off;
+* Default: auth_ldap_cache off;
 * Context: http
 
-### auth_ldap_cache_expiration_time
+### auth_ldap_cache_valid
 
-* Syntax: auth_ldap_cache_expiration_time time;
-* Default: auth_ldap_cache_expiration_time 10s;
+* Syntax: auth_ldap_cache_valid time;
+* Default: auth_ldap_cache_valid 10s;
 * Context: http
 
 Cache expiration time (see <https://nginx.org/en/docs/syntax.html> for time intervals syntax).
@@ -154,10 +154,10 @@ The resolver to use as a fallback when the system hostname resolution
 (gethostbyname()) can't resolve the LDAP server hostname.
 See the `resolver` directive of the **ngx_http_core_module**
 
-### auth_ldap_resolver_timeout
+### auth_ldap_resolve_timeout
 
-* Syntax: auth_ldap_resolver_timeout time;
-* Default: auth_ldap_resolver_timeout 10s;
+* Syntax: auth_ldap_resolve_timeout time;
+* Default: auth_ldap_resolve_timeout 10s;
 * Context: http
 
 Resolver requests timeout (see <https://nginx.org/en/docs/syntax.html> for time intervals syntax).
