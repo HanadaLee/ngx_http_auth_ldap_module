@@ -2,6 +2,7 @@
  * Copyright (C) 2011-2013 Valery Komarov <komarov@valerka.net>
  * Copyright (C) 2013 Jiri Hruska <jirka@fud.cz>
  * Copyright (C) 2015-2016 Victor Hahn Castell <victor.hahn@flexoptix.net>
+ * Copyright (C) Hanada
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -141,7 +142,7 @@ typedef struct {
 #endif
     ngx_msec_t resolver_timeout;        /* resolver_timeout */
     ngx_resolver_t *resolver;           /* resolver */
-    ngx_pool_t *cnf_pool;
+    ngx_pool_t *pool;
 } ngx_http_auth_ldap_main_conf_t;
 
 typedef struct {
@@ -217,7 +218,7 @@ typedef enum {
 
 typedef struct ngx_http_auth_ldap_connection {
     ngx_log_t *log;
-    ngx_http_auth_ldap_main_conf_t *main_cnf;
+    ngx_http_auth_ldap_main_conf_t *amcf;
     ngx_http_auth_ldap_server_t *server;
     ngx_peer_connection_t conn;
     ngx_event_t reconnect_event;
@@ -249,7 +250,7 @@ static char * ngx_http_auth_ldap_parse_require(ngx_conf_t *cf, ngx_http_auth_lda
 static char * ngx_http_auth_ldap_parse_satisfy(ngx_conf_t *cf, ngx_http_auth_ldap_server_t *server);
 static char * ngx_http_auth_ldap_parse_referral(ngx_conf_t *cf, ngx_http_auth_ldap_server_t *server);
 static void * ngx_http_auth_ldap_create_main_conf(ngx_conf_t *cf);
-static char * ngx_http_auth_ldap_init_main_conf(ngx_conf_t *cf, void *parent);
+static char * ngx_http_auth_ldap_init_main_conf(ngx_conf_t *cf, void *conf);
 static void * ngx_http_auth_ldap_create_loc_conf(ngx_conf_t *);
 static char * ngx_http_auth_ldap_merge_loc_conf(ngx_conf_t *, void *, void *);
 static ngx_int_t ngx_http_auth_ldap_init_worker(ngx_cycle_t *cycle);
@@ -463,7 +464,7 @@ ngx_http_auth_ldap_ldap_server_block(ngx_conf_t *cf, ngx_command_t *cmd, void *c
     ngx_str_t                      *value, name;
     ngx_conf_t                     save;
     ngx_http_auth_ldap_server_t    *server;
-    ngx_http_auth_ldap_main_conf_t *cnf = conf;
+    ngx_http_auth_ldap_main_conf_t *amcf = conf;
 
     value = cf->args->elts;
 
@@ -474,17 +475,17 @@ ngx_http_auth_ldap_ldap_server_block(ngx_conf_t *cf, ngx_command_t *cmd, void *c
         return NGX_CONF_ERROR;
     }
 
-    if (cnf->servers == NULL) {  
-        if (cnf->servers_size == NGX_CONF_UNSET) {
-            cnf->servers_size = NGX_HTTP_AUTH_LDAP_MAX_SERVERS_SIZE;
+    if (amcf->servers == NULL) {  
+        if (amcf->servers_size == NGX_CONF_UNSET) {
+            amcf->servers_size = NGX_HTTP_AUTH_LDAP_MAX_SERVERS_SIZE;
         }
-        cnf->servers = ngx_array_create(cf->pool, cnf->servers_size, sizeof(ngx_http_auth_ldap_server_t));
-        if (cnf->servers == NULL) {
+        amcf->servers = ngx_array_create(cf->pool, amcf->servers_size, sizeof(ngx_http_auth_ldap_server_t));
+        if (amcf->servers == NULL) {
             return NGX_CONF_ERROR;
         }
     }
 
-    server = ngx_array_push(cnf->servers);
+    server = ngx_array_push(amcf->servers);
     if (server == NULL) {
         return NGX_CONF_ERROR;
     }
@@ -532,11 +533,11 @@ ngx_http_auth_ldap_ldap_server(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
     char                           *rv;
     ngx_str_t                      *value;
     ngx_http_auth_ldap_server_t    *server;
-    ngx_http_auth_ldap_main_conf_t *cnf = conf;
+    ngx_http_auth_ldap_main_conf_t *amcf = conf;
     ngx_int_t                      i;
 
     /* It should be safe to just use latest server from array */
-    server = ((ngx_http_auth_ldap_server_t *) cnf->servers->elts + (cnf->servers->nelts - 1));
+    server = ((ngx_http_auth_ldap_server_t *) amcf->servers->elts + (amcf->servers->nelts - 1));
 
     value = cf->args->elts;
 
@@ -630,21 +631,21 @@ static char *
 ngx_http_auth_ldap(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_str_t *value = cf->args->elts;
-    ngx_http_auth_ldap_loc_conf_t *cnf = conf;
+    ngx_http_auth_ldap_loc_conf_t *alcf = conf;
     u_char *p;
 
     if (ngx_strcmp(value[1].data, "off") == 0) {
-        ngx_str_set(&cnf->realm, "");
+        ngx_str_set(&alcf->realm, "");
         return NGX_CONF_OK;
     }
 
-    cnf->realm.len = sizeof("Basic realm=\"") - 1 + value[1].len + 1;
-    cnf->realm.data = ngx_pcalloc(cf->pool, cnf->realm.len);
-    if (cnf->realm.data == NULL) {
+    alcf->realm.len = sizeof("Basic realm=\"") - 1 + value[1].len + 1;
+    alcf->realm.data = ngx_pcalloc(cf->pool, alcf->realm.len);
+    if (alcf->realm.data == NULL) {
         return NGX_CONF_ERROR;
     }
 
-    p = ngx_cpymem(cnf->realm.data, "Basic realm=\"", sizeof("Basic realm=\"") - 1);
+    p = ngx_cpymem(alcf->realm.data, "Basic realm=\"", sizeof("Basic realm=\"") - 1);
     p = ngx_cpymem(p, value[1].data, value[1].len);
     *p = '"';
 
@@ -657,26 +658,26 @@ ngx_http_auth_ldap(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static char *
 ngx_http_auth_ldap_servers(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_http_auth_ldap_loc_conf_t *cnf;
-    ngx_http_auth_ldap_main_conf_t *mconf;
+    ngx_http_auth_ldap_loc_conf_t *alcf;
+    ngx_http_auth_ldap_main_conf_t *amcf;
     ngx_http_auth_ldap_server_t *server, *s, **target;
     ngx_str_t *value;
     ngx_uint_t i, j;
 
-    cnf = conf;
-    mconf = ngx_http_conf_get_module_main_conf(cf, ngx_http_auth_ldap_module);
+    alcf = conf;
+    amcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_auth_ldap_module);
 
     for (i = 1; i < cf->args->nelts; i++) {
         value = &((ngx_str_t *) cf->args->elts)[i];
         server = NULL;
-        if (mconf->servers == NULL) {
+        if (amcf->servers == NULL) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "http_auth_ldap: Using \"auth_ldap_servers\" when no \"ldap_server\" has been previously defined"
                 " (make sure that \"auth_ldap_servers\" goes after \"ldap_server\"s in your configuration file)", value);
             return NGX_CONF_ERROR;
         }
 
-        for (j = 0; j < mconf->servers->nelts; j++) {
-            s = &((ngx_http_auth_ldap_server_t *) mconf->servers->elts)[j];
+        for (j = 0; j < amcf->servers->nelts; j++) {
+            s = &((ngx_http_auth_ldap_server_t *) amcf->servers->elts)[j];
             if (s->alias.len == value->len && ngx_memcmp(s->alias.data, value->data, s->alias.len) == 0) {
                 server = s;
                 break;
@@ -689,14 +690,14 @@ ngx_http_auth_ldap_servers(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
 
 
-        if (cnf->servers == NGX_CONF_UNSET_PTR) {
-            cnf->servers = ngx_array_create(cf->pool, 4, sizeof(ngx_http_auth_ldap_server_t *));
-            if (cnf->servers == NULL) {
+        if (alcf->servers == NGX_CONF_UNSET_PTR) {
+            alcf->servers = ngx_array_create(cf->pool, 4, sizeof(ngx_http_auth_ldap_server_t *));
+            if (alcf->servers == NULL) {
                 return NGX_CONF_ERROR;
             }
         }
 
-        target = (ngx_http_auth_ldap_server_t **) ngx_array_push(cnf->servers);
+        target = (ngx_http_auth_ldap_server_t **) ngx_array_push(alcf->servers);
         if (target == NULL) {
             return NGX_CONF_ERROR;
         }
@@ -713,17 +714,17 @@ ngx_http_auth_ldap_servers(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static char *
 ngx_http_auth_ldap_resolver(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_http_auth_ldap_main_conf_t *cnf = conf;
+    ngx_http_auth_ldap_main_conf_t *amcf = conf;
     ngx_str_t *value;
 
-    if (cnf->resolver) {
+    if (amcf->resolver) {
         return "is duplicate";
     }
 
     value = cf->args->elts;
 
-    cnf->resolver = ngx_resolver_create(cf, &value[1], cf->args->nelts - 1);
-    if (cnf->resolver == NULL) {
+    amcf->resolver = ngx_resolver_create(cf, &value[1], cf->args->nelts - 1);
+    if (amcf->resolver == NULL) {
         return NGX_CONF_ERROR;
     }
 
@@ -819,11 +820,11 @@ ngx_http_auth_ldap_parse_url(ngx_conf_t *cf, ngx_http_auth_ldap_server_t *server
         return NGX_CONF_OK;
 #if (NGX_OPENSSL)
     } else if (ngx_strcmp(server->ludpp->lud_scheme, "ldaps") == 0) {
-        ngx_http_auth_ldap_main_conf_t *halmcf =
+        ngx_http_auth_ldap_main_conf_t *amcf =
             ngx_http_conf_get_module_main_conf(cf, ngx_http_auth_ldap_module);
         ngx_uint_t protos = NGX_SSL_SSLv2 | NGX_SSL_SSLv3 |
             NGX_SSL_TLSv1 | NGX_SSL_TLSv1_1 | NGX_SSL_TLSv1_2;
-        if (halmcf->ssl.ctx == NULL && ngx_ssl_create(&halmcf->ssl, protos, halmcf) != NGX_OK) {
+        if (amcf->ssl.ctx == NULL && ngx_ssl_create(&amcf->ssl, protos, amcf) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
         return NGX_CONF_OK;
@@ -1002,7 +1003,7 @@ ngx_http_auth_ldap_create_main_conf(ngx_conf_t *cf)
         return NULL;
     }
 
-    conf->cnf_pool = cf->pool;
+    conf->pool = cf->pool;
     conf->cache_enabled = NGX_CONF_UNSET;
     conf->cache_valid = NGX_CONF_UNSET_MSEC;
     conf->cache_size = NGX_CONF_UNSET_SIZE;
@@ -1014,33 +1015,46 @@ ngx_http_auth_ldap_create_main_conf(ngx_conf_t *cf)
 }
 
 static char *
-ngx_http_auth_ldap_init_main_conf(ngx_conf_t *cf, void *parent)
+ngx_http_auth_ldap_init_main_conf(ngx_conf_t *cf, void *conf)
 {
-    ngx_http_auth_ldap_main_conf_t *conf = parent;
+    ngx_http_auth_ldap_main_conf_t *amcf = conf;
+    ngx_http_core_loc_conf_t       *clcf;
 
-    if (conf->resolver_timeout == NGX_CONF_UNSET_MSEC) {
-        conf->resolver_timeout = 10000;
+    clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
+
+    if (amcf->resolver == NULL) {
+        amcf->resolver = clcf->resolver;
     }
 
-    if (conf->cache_enabled == NGX_CONF_UNSET) {
-        conf->cache_enabled = 0;
+    if (amcf->resolver_timeout == NGX_CONF_UNSET_MSEC) {
+
+        if (clcf->resolver_timeout != NGX_CONF_UNSET_MSEC) {
+            amcf->resolver_timeout = clcf->resolver_timeout;
+
+        } else {
+            amcf->resolver_timeout = 30000;
+        }
     }
-    if (conf->cache_enabled == 0) {
+
+    if (amcf->cache_enabled == NGX_CONF_UNSET) {
+        amcf->cache_enabled = 0;
+    }
+    if (amcf->cache_enabled == 0) {
         return NGX_CONF_OK;
     }
 
-    if (conf->cache_size == NGX_CONF_UNSET_SIZE) {
-        conf->cache_size = 100;
+    if (amcf->cache_size == NGX_CONF_UNSET_SIZE) {
+        amcf->cache_size = 100;
     }
-    if (conf->cache_size < 100) {
+    if (amcf->cache_size < 100) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "http_auth_ldap: auth_ldap_cache_size cannot be smaller than 100 entries.");
         return NGX_CONF_ERROR;
     }
 
-    if (conf->cache_valid == NGX_CONF_UNSET_MSEC) {
-        conf->cache_valid = 10000;
+    if (amcf->cache_valid == NGX_CONF_UNSET_MSEC) {
+        amcf->cache_valid = 10000;
     }
-    if (conf->cache_valid < 1000) {
+    if (amcf->cache_valid < 1000) {
         ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "http_auth_ldap: auth_ldap_cache_valid cannot be smaller than 1000 ms.");
         return NGX_CONF_ERROR;
     }
@@ -2067,7 +2081,7 @@ ngx_http_auth_ldap_connect(ngx_http_auth_ldap_connection_t *c)
             c->cnx_idx, &c->server->alias);
 
     // Clear and free any previous addrs from parsed_url, so that we can resolve again the LDAP server hostname
-    my_free_addrs_from_url(c->main_cnf->cnf_pool, &c->server->parsed_url);
+    my_free_addrs_from_url(c->amcf->pool, &c->server->parsed_url);
     
     c->server->parsed_url.no_resolve = 0; // Try to resolve this time
     if (ngx_parse_url(c->pool, &c->server->parsed_url) != NGX_OK) {
@@ -2075,14 +2089,14 @@ ngx_http_auth_ldap_connect(ngx_http_auth_ldap_connection_t *c)
                 "ngx_http_auth_ldap_connect: Hostname \"%V\" not found with system resolver, try with DNS",
                 &c->server->parsed_url.host);
         // Try to resolve the hostname through the resolver
-        if (c->main_cnf->resolver == NULL) {
+        if (c->amcf->resolver == NULL) {
             ngx_log_error(NGX_LOG_ERR, c->log, 0,
                     "ngx_http_auth_ldap_connect: No resolver configured");
             return;
         }
         ngx_resolver_ctx_t *resolver_ctx, temp;
         temp.name = c->server->parsed_url.host;
-        resolver_ctx = ngx_resolve_start(c->main_cnf->resolver, &temp);
+        resolver_ctx = ngx_resolve_start(c->amcf->resolver, &temp);
         if (resolver_ctx == NULL) {
             ngx_log_error(NGX_LOG_ERR, c->log, 0, "ngx_http_auth_ldap_connect: Unable to start the resolver");
             return;
@@ -2096,7 +2110,7 @@ ngx_http_auth_ldap_connect(ngx_http_auth_ldap_connection_t *c)
         resolver_ctx->name = c->server->parsed_url.host;
         resolver_ctx->handler = ngx_http_auth_ldap_resolve_handler;
         resolver_ctx->data = c;
-        resolver_ctx->timeout = c->main_cnf->resolver_timeout;
+        resolver_ctx->timeout = c->amcf->resolver_timeout;
         c->resolver_ctx = resolver_ctx;
         if (ngx_resolve_name(resolver_ctx) != NGX_OK) {
             c->resolver_ctx = NULL;
@@ -2312,7 +2326,7 @@ static void ngx_http_auth_ldap_resolve_handler(ngx_resolver_ctx_t *ctx)
     c->resolver_ctx = NULL;
 
     // Clear and free any previous addrs in parsed_url
-    my_free_addrs_from_url(c->main_cnf->cnf_pool, &c->server->parsed_url);
+    my_free_addrs_from_url(c->amcf->pool, &c->server->parsed_url);
 
     u_char ip_addr_str[INET6_ADDRSTRLEN +1]; // Buffer for IPv4 or IPv6 address strings
     // Update the parsed_url with the addresses resolved by DNS
@@ -2322,7 +2336,7 @@ static void ngx_http_auth_ldap_resolve_handler(ngx_resolver_ctx_t *ctx)
         ngx_log_debug4(NGX_LOG_DEBUG_HTTP, c->log, 0,
             "ngx_http_auth_ldap_resolve_handler: Cnx[%d] Found [%d] %V -> %s",
             c->cnx_idx, i, &ctx->name, ip_addr_str);
-        my_ngx_inet_add_addr(c->main_cnf->cnf_pool, &c->server->parsed_url,
+        my_ngx_inet_add_addr(c->amcf->pool, &c->server->parsed_url,
             res_addr->sockaddr, res_addr->socklen, ctx->naddrs);
     }
 
@@ -2336,17 +2350,17 @@ static void ngx_http_auth_ldap_resolve_handler(ngx_resolver_ctx_t *ctx)
 static ngx_int_t
 ngx_http_auth_ldap_init_servers(ngx_cycle_t *cycle)
 {
-    ngx_http_auth_ldap_main_conf_t *halmcf;
+    ngx_http_auth_ldap_main_conf_t *amcf;
     ngx_http_auth_ldap_server_t *server;
     ngx_uint_t i, j;
 
-    halmcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_auth_ldap_module);
-    if (halmcf == NULL || halmcf->servers == NULL) {
+    amcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_auth_ldap_module);
+    if (amcf == NULL || amcf->servers == NULL) {
 	    return NGX_OK;
     }
 
-    for (i = 0; i < halmcf->servers->nelts; i++) {
-        server = &((ngx_http_auth_ldap_server_t *) halmcf->servers->elts)[i];
+    for (i = 0; i < amcf->servers->nelts; i++) {
+        server = &((ngx_http_auth_ldap_server_t *) amcf->servers->elts)[i];
 
         if (server->attrs == NULL) {
             // No search attributes specified, so setup an empty attributes list
@@ -2369,23 +2383,23 @@ static ngx_int_t
 ngx_http_auth_ldap_init_connections(ngx_cycle_t *cycle)
 {
     ngx_http_auth_ldap_connection_t *c;
-    ngx_http_auth_ldap_main_conf_t *halmcf;
+    ngx_http_auth_ldap_main_conf_t *amcf;
     ngx_http_auth_ldap_server_t *server;
     ngx_pool_cleanup_t *cleanup;
     ngx_connection_t *dummy_conn;
     ngx_uint_t i, j;
     int option;
 
-    halmcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_auth_ldap_module);
-    if (halmcf == NULL || halmcf->servers == NULL) {
+    amcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_auth_ldap_module);
+    if (amcf == NULL || amcf->servers == NULL) {
 	  return NGX_OK;
     }
 
     option = LDAP_VERSION3;
     ldap_set_option(NULL, LDAP_OPT_PROTOCOL_VERSION, &option);
 
-    for (i = 0; i < halmcf->servers->nelts; i++) {
-        server = &((ngx_http_auth_ldap_server_t *) halmcf->servers->elts)[i];
+    for (i = 0; i < amcf->servers->nelts; i++) {
+        server = &((ngx_http_auth_ldap_server_t *) amcf->servers->elts)[i];
         ngx_queue_init(&server->free_connections);
         ngx_queue_init(&server->waiting_requests);
         ngx_queue_init(&server->pending_reconnections);
@@ -2405,7 +2419,7 @@ ngx_http_auth_ldap_init_connections(ngx_cycle_t *cycle)
             cleanup->data = c;
 
             c->log = cycle->log;
-            c->main_cnf = halmcf;
+            c->amcf = amcf;
             c->server = server;
             c->state = STATE_DISCONNECTED;
             c->cnx_idx = j;
@@ -2420,7 +2434,7 @@ ngx_http_auth_ldap_init_connections(ngx_cycle_t *cycle)
 
 #if (NGX_OPENSSL)
             c->pool = cycle->pool;
-            c->ssl = &halmcf->ssl;
+            c->ssl = &amcf->ssl;
 #endif
 
             ngx_http_auth_ldap_connect(c);
