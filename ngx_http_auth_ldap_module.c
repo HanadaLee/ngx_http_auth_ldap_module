@@ -139,7 +139,7 @@ typedef struct {
 #if (NGX_OPENSSL)
     ngx_ssl_t ssl;
 #endif
-    ngx_msec_t resolve_timeout;        /* resolve_timeout */
+    ngx_msec_t resolver_timeout;        /* resolver_timeout */
     ngx_resolver_t *resolver;           /* resolver */
     ngx_pool_t *cnf_pool;
 } ngx_http_auth_ldap_main_conf_t;
@@ -333,11 +333,11 @@ static ngx_command_t ngx_http_auth_ldap_commands[] = {
         NULL
     },
     {
-        ngx_string("auth_ldap_resolve_timeout"),
+        ngx_string("auth_ldap_resolver_timeout"),
         NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
         ngx_conf_set_msec_slot,
         NGX_HTTP_MAIN_CONF_OFFSET,
-        offsetof(ngx_http_auth_ldap_main_conf_t, resolve_timeout),
+        offsetof(ngx_http_auth_ldap_main_conf_t, resolver_timeout),
         NULL
     },
     {
@@ -1007,7 +1007,7 @@ ngx_http_auth_ldap_create_main_conf(ngx_conf_t *cf)
     conf->cache_valid = NGX_CONF_UNSET_MSEC;
     conf->cache_size = NGX_CONF_UNSET_SIZE;
     conf->servers_size = NGX_CONF_UNSET;
-    conf->resolve_timeout = NGX_CONF_UNSET_MSEC;
+    conf->resolver_timeout = NGX_CONF_UNSET_MSEC;
     conf->resolver = NULL;
 
     return conf;
@@ -1018,8 +1018,8 @@ ngx_http_auth_ldap_init_main_conf(ngx_conf_t *cf, void *parent)
 {
     ngx_http_auth_ldap_main_conf_t *conf = parent;
 
-    if (conf->resolve_timeout == NGX_CONF_UNSET_MSEC) {
-        conf->resolve_timeout = 10000;
+    if (conf->resolver_timeout == NGX_CONF_UNSET_MSEC) {
+        conf->resolver_timeout = 10000;
     }
 
     if (conf->cache_enabled == NGX_CONF_UNSET) {
@@ -2096,7 +2096,7 @@ ngx_http_auth_ldap_connect(ngx_http_auth_ldap_connection_t *c)
         resolver_ctx->name = c->server->parsed_url.host;
         resolver_ctx->handler = ngx_http_auth_ldap_resolve_handler;
         resolver_ctx->data = c;
-        resolver_ctx->timeout = c->main_cnf->resolve_timeout;
+        resolver_ctx->timeout = c->main_cnf->resolver_timeout;
         c->resolver_ctx = resolver_ctx;
         if (ngx_resolve_name(resolver_ctx) != NGX_OK) {
             c->resolver_ctx = NULL;
