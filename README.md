@@ -152,15 +152,17 @@ Select the server _name_ to work with user authentication
 
 The resolver to use as a fallback when the system hostname resolution
 (gethostbyname()) can't resolve the LDAP server hostname.
+If not specified, will try to inherit the `resolver` directive.
 See the `resolver` directive of the **ngx_http_core_module**
 
-### auth_ldap_resolve_timeout
+### auth_ldap_resolver_timeout
 
-* Syntax: auth_ldap_resolve_timeout time;
-* Default: auth_ldap_resolve_timeout 10s;
+* Syntax: auth_ldap_resolver_timeout time;
+* Default: auth_ldap_resolver_timeout 10s;
 * Context: http
 
 Resolver requests timeout (see <https://nginx.org/en/docs/syntax.html> for time intervals syntax).
+If not specified, will try to inherit the `resolver_timeout` directive. 
 
 ### ldap_server
 
