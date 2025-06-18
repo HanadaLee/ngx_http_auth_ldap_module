@@ -251,8 +251,8 @@ static char * ngx_http_auth_ldap_parse_satisfy(ngx_conf_t *cf, ngx_http_auth_lda
 static char * ngx_http_auth_ldap_parse_referral(ngx_conf_t *cf, ngx_http_auth_ldap_server_t *server);
 static void * ngx_http_auth_ldap_create_main_conf(ngx_conf_t *cf);
 static char * ngx_http_auth_ldap_init_main_conf(ngx_conf_t *cf, void *conf);
-static void * ngx_http_auth_ldap_create_loc_conf(ngx_conf_t *);
-static char * ngx_http_auth_ldap_merge_loc_conf(ngx_conf_t *, void *, void *);
+static void * ngx_http_auth_ldap_create_loc_conf(ngx_conf_t *cf);
+static char * ngx_http_auth_ldap_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
 static ngx_int_t ngx_http_auth_ldap_init_worker(ngx_cycle_t *cycle);
 static ngx_int_t ngx_http_auth_ldap_init(ngx_conf_t *cf);
 static ngx_int_t ngx_http_auth_ldap_init_cache(ngx_cycle_t *cycle);
@@ -261,7 +261,7 @@ static void ngx_http_auth_ldap_set_pending_reconnection(ngx_http_auth_ldap_conne
 static void ngx_http_auth_ldap_read_handler(ngx_event_t *rev);
 static void ngx_http_auth_ldap_connect(ngx_http_auth_ldap_connection_t *c);
 static void ngx_http_auth_ldap_connect_continue(ngx_http_auth_ldap_connection_t *c);
-static void ngx_http_auth_ldap_reconnect_handler(ngx_event_t *);
+static void ngx_http_auth_ldap_reconnect_handler(ngx_event_t *ev);
 static void ngx_http_auth_ldap_reconnect_from_connection(ngx_http_auth_ldap_connection_t *c);
 static void ngx_http_auth_ldap_resolve_handler(ngx_resolver_ctx_t *ctx);
 static ngx_int_t ngx_http_auth_ldap_init_servers(ngx_cycle_t *cycle);
@@ -277,10 +277,10 @@ static ngx_int_t ngx_http_auth_ldap_recover_bind(ngx_http_request_t *r, ngx_http
 #if (NGX_OPENSSL)
 static ngx_int_t ngx_http_auth_ldap_restore_handlers(ngx_connection_t *conn);
 #endif
-static u_char * santitize_str(u_char *str, ngx_uint_t conv);
-static ngx_uint_t my_hex_digit_value(u_char c);
-static ngx_uint_t my_hex_decode(ngx_str_t *dst, ngx_str_t *src);
-static void my_free_addrs_from_url(ngx_pool_t *pool, ngx_url_t *u);
+static u_char * ngx_http_auth_ldap_santitize_str(u_char *str, ngx_uint_t conv);
+static ngx_uint_t ngx_http_auth_ldap_hex_digit_value(u_char c);
+static ngx_uint_t ngx_http_auth_ldap_hex_decode(ngx_str_t *dst, ngx_str_t *src);
+static void ngx_http_auth_ldap_free_addrs_from_url(ngx_pool_t *pool, ngx_url_t *u);
 
 ngx_http_auth_ldap_cache_t ngx_http_auth_ldap_cache;
 
@@ -390,7 +390,7 @@ ngx_module_t ngx_http_auth_ldap_module = {
 
 /*** Tools ***/
 
-static u_char * santitize_str(u_char *str, ngx_uint_t conv) {
+static u_char * ngx_http_auth_ldap_santitize_str(u_char *str, ngx_uint_t conv) {
     static u_char sanitizeTable[256] = {0xff};
     ngx_uint_t i;
     u_char *p;
@@ -424,7 +424,7 @@ static u_char * santitize_str(u_char *str, ngx_uint_t conv) {
 
 
 static ngx_uint_t
-my_hex_digit_value(u_char c)
+ngx_http_auth_ldap_hex_digit_value(u_char c)
 {
     if (c >= '0' && c <= '9') {
         return (ngx_uint_t)(c - '0');
@@ -439,13 +439,13 @@ my_hex_digit_value(u_char c)
 }
 
 static ngx_uint_t
-my_hex_decode(ngx_str_t *dst, ngx_str_t *src)
+ngx_http_auth_ldap_hex_decode(ngx_str_t *dst, ngx_str_t *src)
 {
     u_char     *s, *d;
     ngx_uint_t i;
 
     for (i = 0, s = src->data, d = dst->data ; i < src->len -1; i += 2, s += 2) {
-        *d++ = (u_char)(16 * my_hex_digit_value(*s) + my_hex_digit_value(*(s + 1)));
+        *d++ = (u_char)(16 * ngx_http_auth_ldap_hex_digit_value(*s) + ngx_http_auth_ldap_hex_digit_value(*(s + 1)));
     }
 
     dst->len = (d - dst->data);
@@ -560,7 +560,7 @@ ngx_http_auth_ldap_ldap_server(ngx_conf_t *cf, ngx_command_t *dummy, void *conf)
         }
         server->attrs[attrs_count] = NULL; // Last element of the list
     } else if (ngx_strcmp(value[0].data, "attribute_header_prefix") == 0 && cf->args->nelts >= 2) {
-        santitize_str(value[1].data, SANITIZE_NO_CONV); // The prefix is sanitized
+        ngx_http_auth_ldap_santitize_str(value[1].data, SANITIZE_NO_CONV); // The prefix is sanitized
         server->attribute_header_prefix = value[1];
     } else if (ngx_strcmp(value[0].data, "require") == 0) {
         return ngx_http_auth_ldap_parse_require(cf, server);
@@ -878,7 +878,7 @@ ngx_http_auth_ldap_parse_binddn_passwd(ngx_conf_t *cf, ngx_http_auth_ldap_server
         server->bind_dn_passwd.len = 0;
         int decoded_length = value[1].len / 2;
         server->bind_dn_passwd.data = ngx_pnalloc(cf->pool, decoded_length + 1);
-        my_hex_decode(&server->bind_dn_passwd, &value[1]);
+        ngx_http_auth_ldap_hex_decode(&server->bind_dn_passwd, &value[1]);
         server->bind_dn_passwd.data[decoded_length] = '\0';
     }
 
@@ -2025,7 +2025,7 @@ ngx_http_auth_ldap_read_handler(ngx_event_t *rev)
                                     c->cnx_idx, attr, vals[0]->bv_val);
                                 /* Save attribute name and value in the context */
                                 ldap_search_attribute_t * elt = ngx_array_push(&c->rctx->attributes);
-                                santitize_str((u_char *)attr, SANITIZE_NO_CONV);
+                                ngx_http_auth_ldap_santitize_str((u_char *)attr, SANITIZE_NO_CONV);
                                 int attr_len = strlen(attr);
                                 elt->attr_name.len = c->server->attribute_header_prefix.len + attr_len;
                                 /* Use the pool of global cache to allocate strings, so that they can be used everywhere */
@@ -2081,7 +2081,7 @@ ngx_http_auth_ldap_connect(ngx_http_auth_ldap_connection_t *c)
             c->cnx_idx, &c->server->alias);
 
     // Clear and free any previous addrs from parsed_url, so that we can resolve again the LDAP server hostname
-    my_free_addrs_from_url(c->amcf->pool, &c->server->parsed_url);
+    ngx_http_auth_ldap_free_addrs_from_url(c->amcf->pool, &c->server->parsed_url);
     
     c->server->parsed_url.no_resolve = 0; // Try to resolve this time
     if (ngx_parse_url(c->pool, &c->server->parsed_url) != NGX_OK) {
@@ -2224,7 +2224,7 @@ ngx_http_auth_ldap_reconnect_from_connection(ngx_http_auth_ldap_connection_t *c)
 }
 
 static void
-my_free_addrs_from_url(ngx_pool_t *pool, ngx_url_t *u)
+ngx_http_auth_ldap_free_addrs_from_url(ngx_pool_t *pool, ngx_url_t *u)
 {
     ngx_addr_t       *addr;
     ngx_uint_t        i;
@@ -2326,7 +2326,7 @@ static void ngx_http_auth_ldap_resolve_handler(ngx_resolver_ctx_t *ctx)
     c->resolver_ctx = NULL;
 
     // Clear and free any previous addrs in parsed_url
-    my_free_addrs_from_url(c->amcf->pool, &c->server->parsed_url);
+    ngx_http_auth_ldap_free_addrs_from_url(c->amcf->pool, &c->server->parsed_url);
 
     u_char ip_addr_str[INET6_ADDRSTRLEN +1]; // Buffer for IPv4 or IPv6 address strings
     // Update the parsed_url with the addresses resolved by DNS
